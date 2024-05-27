@@ -3,36 +3,45 @@ package org.example.util;
 import org.example.annotation.Column;
 import org.example.annotation.Id;
 import org.example.annotation.Table;
-import org.example.entity.Worker;
+import org.example.entity.Client;
 
 import java.lang.reflect.Field;
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.List;
-import java.util.Optional;
-import java.util.stream.Stream;
+import java.util.*;
 
 public class SqlGenerator {
     public static final String INSERT_ENTITY = "INSERT INTO %s (%s) VALUES(%s)";
     public static final String SELECT_ENTITY_BY_ID = "SELECT * FROM %s WHERE %s = ?";
     public static final String SELECT_ALL_ENTITIES = "SELECT * FROM %s";
+    public static final String UPDATE_NAME = "UPDATE %s SET %s WHERE %s= ?";
+    public static final String DELETE_BY_ID = "DELETE FROM %s WHERE %s = ?";
 
-    public static final String UPDATE_NAME = "UPDATE %s SET name = ? WHERE %s= ?";
+    public static String createDeleteQuery(Class<?> type) {
+        String tableName = getTableName(type);
+        String idColName = getIdColumnName(type);
+        return DELETE_BY_ID.formatted(tableName, idColName);
+    }
 
+    public static void main(String[] args) {
+        System.out.println(createUpdateNameQuery(Client.class));
+    }
 
     public static String createUpdateNameQuery(Class<?> type) {
         String tableName = getTableName(type);
+        List<String> columns = getColumnsForInsert(type);
+        List<String> colWithPlaceholder = new ArrayList<>();
+        for (String string : columns) {
+            colWithPlaceholder.add(string + "= ?");
+        }
         String idColName = getIdColumnName(type);
-        return UPDATE_NAME.formatted(tableName, idColName);
+        return UPDATE_NAME.formatted(tableName,
+                String.join(",", colWithPlaceholder),
+                idColName);
     }
+
     public static String createSelectByIdQuery(Class<?> type) {
         String tableName = getTableName(type);
         String idColName = getIdColumnName(type);
         return SELECT_ENTITY_BY_ID.formatted(tableName, idColName);
-    }
-
-    public static void main(String[] args) {
-        System.out.println(createInsertEntityQuery(Worker.class));
     }
 
     public static String createInsertEntityQuery(Class<?> type) {
@@ -45,6 +54,8 @@ public class SqlGenerator {
                 String.join(",", values)
         );
     }
+
+    private SqlGenerator() {}
 
     private static List<String> getColumnsForInsert(Class<?> type) {
         return Arrays.stream(type.getDeclaredFields())

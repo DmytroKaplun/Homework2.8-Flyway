@@ -1,12 +1,11 @@
 package org.example.dao;
 
 
-import org.example.EntityService;
 import org.example.annotation.Id;
 import org.example.database.Database;
+import org.example.entity.DbEnum;
 import org.example.entity.Worker;
 import org.example.util.SqlGenerator;
-import org.postgresql.util.PGobject;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
@@ -15,14 +14,18 @@ import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.logging.Level;
 import java.util.logging.Logger;
 
+import static java.sql.Statement.RETURN_GENERATED_KEYS;
+
 public class EntityDao<T> implements Dao<T> {
-    private static final Logger logger = Logger.getLogger(EntityService.class.getName());
+    private static final Logger logger = Logger.getLogger(EntityDao.class.getName());
     private final Database db;
 
     public EntityDao(Database db) {
         this.db = db;
+
     }
 
     @Override
@@ -31,7 +34,7 @@ public class EntityDao<T> implements Dao<T> {
         long id = 0;
         try (Connection conn = db.getConnection();
              PreparedStatement prepared = conn.prepareStatement(insertQuery,
-                     PreparedStatement.RETURN_GENERATED_KEYS)) {
+                     RETURN_GENERATED_KEYS)) {
             setFieldsValueToPrepState(prepared, object);
             prepared.executeUpdate();
             ResultSet generatedKeys = prepared.getGeneratedKeys();
@@ -44,45 +47,40 @@ public class EntityDao<T> implements Dao<T> {
                 field.setAccessible(false);
             }
         } catch (SQLException | IllegalAccessException e) {
-            logger.log(java.util.logging.Level.SEVERE, "Error saving client", e);
-            throw new RuntimeException(e);
+            logger.log(Level.SEVERE, "Error saving client", e);
         }
         return id;
     }
 
     @Override
-    public  String getById(Long id, Class<T> type) {
-        String name = null;
+    public T getById(Long id, Class<T> type) {
         String selectById = SqlGenerator.createSelectByIdQuery(type);
 
+        T mapped = null;
         try (Connection conn = db.getConnection();
              PreparedStatement preparedStatement = conn.prepareStatement(selectById)) {
             preparedStatement.setLong(1, id);
             ResultSet resultSet = preparedStatement.executeQuery();
 
             while (resultSet.next()) {
-                name = resultSet.getString("name");
-                System.out.println(mapResultSetToObject(resultSet, type));
+                mapped = mapResultSetToObject(resultSet, type);
             }
         } catch (SQLException e) {
             logger.log(java.util.logging.Level.SEVERE, "Failed to find client", e);
-            throw new RuntimeException(e);
         }
-        return name;
+        return mapped;
     }
 
     @Override
-    public void setName(long id, String name, Class<T> type) {
-        String updateName = SqlGenerator.createUpdateNameQuery(type);
+    public void setName(T object) {
+        String updateName = SqlGenerator.createUpdateNameQuery(object.getClass());
 
         try (Connection conn = db.getConnection();
              PreparedStatement preparedStatement = conn.prepareStatement(updateName)) {
-            preparedStatement.setString(1, name);
-            preparedStatement.setLong(2, id);
-            preparedStatement.executeUpdate();
+            conn.setAutoCommit(false);
+            setPrepStatement(object, preparedStatement, conn);
         } catch (SQLException e) {
             logger.log(java.util.logging.Level.SEVERE, "Fail to update", e);
-            throw new RuntimeException(e);
         }
     }
 
@@ -100,13 +98,20 @@ public class EntityDao<T> implements Dao<T> {
             }
         } catch (SQLException e) {
             logger.log(java.util.logging.Level.SEVERE, "Failed to find client", e);
-            throw new RuntimeException(e);
         }
         return entityList;
     }
 
     @Override
     public void deleteById(Long id, Class<T> type) {
+        String deleteQuery = SqlGenerator.createDeleteQuery(type);
+       try (Connection conn = db.getConnection();
+        PreparedStatement preparedStatement = conn.prepareStatement(deleteQuery);) {
+           preparedStatement.setLong(1, id);
+           preparedStatement.executeUpdate();
+       } catch (SQLException e) {
+           logger.log(java.util.logging.Level.SEVERE, "Fail to delete", e);
+       }
     }
 
     private T mapResultSetToObject(ResultSet resultSet, Class<T> type) {
@@ -117,14 +122,12 @@ public class EntityDao<T> implements Dao<T> {
                 field.setAccessible(true);
                 Object value = resultSet.getObject(SqlGenerator.getColumnName(field));
 
-                if (value instanceof Date && field.getType().equals(LocalDate.class)) {
-                    value = ((Date) value).toLocalDate();
+                if (value instanceof Date date && field.getType().equals(LocalDate.class)) {
+                    value = date.toLocalDate();
                 }
-
-                if (field.getType().isEnum() && value instanceof String) {
-                    value = Enum.valueOf((Class<Enum>) field.getType(), ((String) value).toUpperCase());
+                if (field.getType().isEnum() && value instanceof String enumString) {
+                    value = Enum.valueOf((Class<Enum>) field.getType(), enumString.toUpperCase());
                 }
-
                 field.set(obj, value);
                 field.setAccessible(false);
             }
@@ -134,9 +137,30 @@ public class EntityDao<T> implements Dao<T> {
                  | NoSuchMethodException
                  | SQLException e) {
             logger.log(java.util.logging.Level.SEVERE, "Failed to parse resultSet", e);
-            throw new RuntimeException(e);
         }
         return obj;
+    }
+
+    private void setPrepStatement(T object, PreparedStatement preparedStatement, Connection conn) throws SQLException {
+        try {
+            setFieldsValueToPrepState(preparedStatement, object);
+
+            Field field = SqlGenerator.getIdField(object.getClass());
+            field.setAccessible(true);
+            Object o = field.get(object);
+            preparedStatement.setObject(preparedStatement.getParameterMetaData().getParameterCount(), o);
+            field.setAccessible(false);
+            int update = preparedStatement.executeUpdate();
+            if (update != 1) {
+                throw new SQLException();
+            }
+            conn.commit();
+        } catch (SQLException | IllegalAccessException e) {
+            conn.rollback();
+            logger.log(Level.SEVERE, "Fail to update", e);
+        } finally {
+            conn.setAutoCommit(true);
+        }
     }
 
     private void setFieldsValueToPrepState(PreparedStatement prepared, T object) {
@@ -149,19 +173,20 @@ public class EntityDao<T> implements Dao<T> {
             field.setAccessible(true);
             try {
                 Object o = field.get(object);
-                if (o instanceof LocalDate) {
-                    o = java.sql.Date.valueOf((LocalDate) o);
-                    prepared.setObject(i + 1, o);
-                } else if (o instanceof Worker.Level) {
-                    prepared.setObject(i + 1, ((Worker.Level) o).getDbValue(), java.sql.Types.OTHER);
-                } else {
-                    prepared.setObject(i + 1, o);
+                switch (o) {
+                    case LocalDate localDate -> {
+                        o = java.sql.Date.valueOf(localDate);
+                        prepared.setObject(i + 1, o);
+                    }
+                    case DbEnum dbEnum -> prepared.setObject(i + 1, dbEnum.getDbValue(), Types.OTHER);
+                    default -> prepared.setObject(i + 1, o);
                 }
-               field.setAccessible(false);
+                field.setAccessible(false);
             } catch (SQLException | IllegalAccessException e) {
                 logger.log(java.util.logging.Level.SEVERE, "Failed to set prepared statement", e);
-                throw new RuntimeException(e);
             }
         }
     }
+
+
 }

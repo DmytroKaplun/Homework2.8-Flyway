@@ -2,6 +2,7 @@ package org.example;
 
 import org.example.dao.Dao;
 
+import java.text.MessageFormat;
 import java.util.List;
 import java.util.logging.Logger;
 
@@ -10,8 +11,8 @@ public class EntityService<T> {
     private static final Logger logger = Logger.getLogger(EntityService.class.getName());
     private final Dao<T> dao;
 
-    public EntityService(Dao<T> Dao) {
-        this.dao = Dao;
+    public EntityService(Dao<T> dao) {
+        this.dao = dao;
     }
     public long create(T object) {
         long id = dao.save(object);
@@ -19,7 +20,7 @@ public class EntityService<T> {
         return id;
     }
 
-    public String getNameById(long id, Class<T> type) {
+    public T getNameById(long id, Class<T> type) {
         return dao.getById(id, type);
     }
 
@@ -27,14 +28,14 @@ public class EntityService<T> {
         return dao.listAll(type);
     }
 
-    public void updateName(long id, String name, Class<T> type) {
-        dao.setName(id, name, type);
-        logger.info("Updated entity name in the database: ID=" + id + ", New Name=" + name);
+    public void updateName(T object) {
+        dao.setName(object);
+        logger.info("Updated entity in the database");
     }
 
     public void deleteById(long id, Class<T> type) {
         dao.deleteById(id, type);
-        logger.info("Deleted entity from the database: ID=" + id);
+        logger.info(MessageFormat.format("Deleted entity from the database: ID={0}", id));
     }
 }
 

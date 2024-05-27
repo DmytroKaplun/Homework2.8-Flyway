@@ -1,9 +1,6 @@
 package org.example.entity;
 
-import lombok.AllArgsConstructor;
-import lombok.Data;
-import lombok.NoArgsConstructor;
-import lombok.ToString;
+import lombok.*;
 import org.example.annotation.Id;
 import org.example.annotation.Table;
 
@@ -14,6 +11,7 @@ import org.example.annotation.Table;
 public class Client {
     @Id
     private Long id;
+    @Setter
     private String name;
 
     private Client(Builder builder) {
