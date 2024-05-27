@@ -107,11 +107,26 @@ public class EntityDao<T> implements Dao<T> {
         String deleteQuery = SqlGenerator.createDeleteQuery(type);
        try (Connection conn = db.getConnection();
         PreparedStatement preparedStatement = conn.prepareStatement(deleteQuery);) {
-           preparedStatement.setLong(1, id);
-           preparedStatement.executeUpdate();
+           conn.setAutoCommit(false);
+           setPrepStateDelete(id, preparedStatement, conn);
        } catch (SQLException e) {
            logger.log(java.util.logging.Level.SEVERE, "Fail to delete", e);
        }
+    }
+
+    private void setPrepStateDelete(Long id, PreparedStatement preparedStatement, Connection conn) throws SQLException {
+        try {
+            preparedStatement.setLong(1, id);
+            int update = preparedStatement.executeUpdate();
+            if (update != 1) {
+                throw new SQLException();
+            }
+            conn.commit();
+        } catch (SQLException e) {
+            conn.rollback();
+        } finally {
+            conn.setAutoCommit(true);
+        }
     }
 
     private T mapResultSetToObject(ResultSet resultSet, Class<T> type) {
