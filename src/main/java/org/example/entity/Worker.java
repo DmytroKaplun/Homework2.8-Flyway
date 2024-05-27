@@ -2,6 +2,7 @@ package org.example.entity;
 
 import lombok.AllArgsConstructor;
 import lombok.NoArgsConstructor;
+import lombok.Setter;
 import lombok.ToString;
 import org.example.annotation.Column;
 import org.example.annotation.Id;
@@ -16,12 +17,16 @@ import java.time.LocalDate;
 public class Worker {
     @Id
     private Long id;
+    @Setter
     private String name;
+    @Setter
     private LocalDate birthday;
+    @Setter
     private Level level;
+    @Setter
     private int salary;
 
-    public enum Level {
+    public enum Level implements DbEnum{
         TRAINEE,
         JUNIOR,
         MIDDLE,
